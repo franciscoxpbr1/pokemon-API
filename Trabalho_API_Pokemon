@@ -1,0 +1,102 @@
+import base64
+from flask import Flask, send_file
+from io import BytesIO
+import openpyxl
+import os
+import requests
+from PIL import Image
+
+
+app = Flask(__name__)
+
+class Pokemon:
+    def __init__(self, id, name, types, sprites):
+        self.id = id
+        self.name = name
+        self.types = types
+        self.sprites = sprites
+
+def obter_dados_pokemon(id_pokemon):
+    url=f'https://pokeapi.co/api/v2/pokemon/{id_pokemon}'
+    resposta=requests.get(url)
+    # (Código da função obter_dados_pokemon aqui)
+    if resposta.status_code==200:
+        dados_pokemons=resposta.json()
+        return dados_pokemons
+    else:
+        print(f'Falha ao obter dados para o Pokémons com ID {id_pokemon}')
+def baixar_salvar_imagem(url, nome_arquivo):
+    resposta=requests.get(url)
+
+    if resposta.status_code==200:
+        imagem=Image.open(BytesIO(resposta.content))
+        imagem.save(nome_arquivo)
+        print(f'Imagem salva: {nome_arquivo}')
+
+    else:
+        print(f'Falha ao salvar imagem da Url: {url}')
+    # (Código da função baixar_salvar_imagem aqui)
+
+def adicionar_imagem_excel(planilha, linha, coluna, imagem_local):
+    # (Código da função adicionar_imagem_excel aqui)
+    imagem_local_absoluto=os.path.abspath(imagem_local)
+    img=openpyxl.drawing.image.Image(imagem_local_absoluto)
+    img.width=16
+    img.heigth=32
+    planilha.add_image(img,f'{coluna}{linha}')
+
+def processar_lista_ids(lista_ids):
+    dados_pokemons_organizados=[]
+    
+    for id_pokemon in lista_ids:
+        dados_pokemons=obter_dados_pokemon(id_pokemon)
+
+        if dados_pokemons:
+            nome=dados_pokemons['name']
+            identificador=dados_pokemons['id']
+            tipos=[tipo['type']['name'] for tipo in dados_pokemons['types']]
+            imagem_url=dados_pokemons['sprites']['front_default'] if 'sprites' in dados_pokemons else ''
+
+            nome_arquivo_imagem=f'{identificador}_{nome}.png'
+            baixar_salvar_imagem(imagem_url,nome_arquivo_imagem)
+
+            pokemon = Pokemon(id=identificador, name=nome, types=tipos, sprites=imagem_url)
+            dados_pokemons_organizados.append(pokemon)
+    return dados_pokemons_organizados
+    # (Código da função processar_lista_ids aqui)
+
+@app.route('/pokemon', methods=['GET'])
+def obter_excel_base64():
+    lista_ids_pokemon = [1,2,3,5,6]
+    dados_organizados = processar_lista_ids(lista_ids_pokemon)
+
+    # Criando um arquivo Excel
+    arquivo_excel = openpyxl.Workbook()
+    planilha = arquivo_excel.active
+
+    # Adicionando cabeçalho
+    cabecalho = ["Name", "ID", "Types", "Sprite"]
+    planilha.append(cabecalho)
+
+    # Preenchendo os dados na planilha
+    for i, pokemon in enumerate(dados_organizados, start=2):  # Começando da linha 2 para incluir cabeçalho
+        linha = [pokemon.name, pokemon.id, ', '.join(pokemon.types)]
+        planilha.append(linha)
+
+        # Adicionando imagem à coluna Sprite
+        adicionar_imagem_excel(planilha, i, "D", f"{pokemon.id}_{pokemon.name}.png")
+    print("Coloque no final do site /pokemon!")
+  # Salvando o arquivo Excel
+    arquivo_excel.save("dados_pokemon.xlsx")
+    print("Dados salvos no arquivo dados_pokemon.xlsx")
+    # Salvando o arquivo Excel em BytesIO
+    excel_bytesio = BytesIO()
+    arquivo_excel.save(excel_bytesio)    
+    excel_bytes = excel_bytesio.getvalue()
+    excel_base64 = base64.b64encode(excel_bytes).decode('utf-8')
+    
+
+    return excel_base64
+
+if __name__ == '__main__':
+    app.run(port=8000, host='127.0.0.1', debug=True, use_reloader=True)
